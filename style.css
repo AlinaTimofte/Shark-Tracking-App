@@ -1,63 +1,80 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
 body{
-    background-color: #0f172a;
+    font-family: 'Poppins', sans-serif;
+    background: linear-gradient(to bottom right, #0f2027, #203a43, #2c5364);
+    height: 100vh;
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    font-family: sans-serif;
+    color: white;
 }
-.card{
-    background-color: #f1f5f9;
-    width: 400px;
-    padding: 20px;
-    border-radius: 15px;
-}
-.card ul {
-    text-align: left;
-    background-color: #dddd;
-    padding: 10px 20px 20px 20px;
-    border-radius: 12px;
-}
-/* removing bulletpoints */
-.facts-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-.facts-list li {
-    margin-bottom: 7px;
-    color: #414141;
-    font-size: 14px;
-    padding: 4px 5px;
-    line-height: 1.4;
 
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.card{
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 30px;
+    width: 320px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    transition: transform 0.3s ease;
 }
-.facts-list li span{
-    font-size: 15px;
-    border-radius: 50%;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+.card:hover{
+    transform: translateY(-5px);
 }
-.card p {
-    line-height: 1.6;
+.shark-photo {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
-.card h1 {
-    color: #1e293b;
-    font-size: 26px;
-    font-weight: 800;
+.tag {
+    background-color: #10b981;
+    color: #064e3b;
+    padding: 4px 12px;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
+    letter-spacing: 1px;
+}
+
+h1 {
+    margin-top: 15px;
+    font-size: 1.8rem;
+}
+
+p {
+    color: #cbd5e1;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+
+.info {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 20px;
+}
+
+.info-box h3{
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #94a3b8;
     margin-bottom: 5px;
 }
-.subtitle {
-    color: #28a99e; 
+
+.info-box span{
     font-weight: 600;
-    font-size: 14px;
-    margin-bottom: 25px;
-}
-.card img{
-    width: 100%;
-    border-radius: 10px;
+    font-size: 1.1rem;
 }
