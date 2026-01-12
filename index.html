@@ -14,25 +14,27 @@
     </head>
     <body>
         <div class="card">
-            <img src="images/White_shark.jpg" alt="Great White Shark" class="shark-photo">
-            <span class="tag">Tracked</span>
-            <h1>Deep Blue</h1>
-            <p>Is a female greate white shark that is estimated to be 6.1m long or larger and is now 60 years old. She is believed to be one of the largest ever recorded in history.</p>
+            <img id="shark-image" src="images/placeholder_shark.jpg" alt="Shark" class="shark-photo">
+            <span id= "tag" class="tag">Loading...</span>
+            <h1 id="shark-name"> Shark </h1>
+            <p id="shark-description">Description loading...</p>
 
             <div class="info">
                 <div class="info-box">
                     <h3>Length</h3>
-                    <span>6.1m</span>
+                    <span id="shark-length">--</span>
                 </div>
                 <div class="info-box">
                     <h3>Weight</h3>
-                    <span>2,000kg</span>
+                    <span id="shark-weight">--</span>
                 </div>
                 <div class="info-box">
                     <h3>Zone</h3>
-                    <span>Pacific</span>
+                    <span id="shark-zone">--</span>
                 </div>
             </div>
+            <button class="next-button" onclick="nextShark()">Next Shark</button>
         </div>
+        <script src="script.js"></script>
     </body>
 </html>
