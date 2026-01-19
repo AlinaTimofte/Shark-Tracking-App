@@ -6,160 +6,104 @@
 
 body {
     font-family: 'Poppins', sans-serif;
-    background: linear-gradient(to bottom right, #0f2027, #203a43, #2c5364);
+    background-color: #0f2027;
     height: 100vh;
+    /* Flex column makes the Map sit on top of the Card */
     display: flex;
-    justify-content: center;
-    align-items: center;
-    color: white;
-    /* They will stack vertically on mobile by default */
     flex-direction: column;
-    gap: 20px;
+    align-items: center;
+    overflow: hidden; /* Prevents scrolling */
 }
 
-/* If the screen is big (Computer), then they will be put side by side */
-@media (min-width: 800px){
-    body{
-        flex-direction: row;
-    }
+#map {
+    height: 55vh; 
+    width: 100%;
+    z-index: 1;   
 }
 
 .card {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 20px;
+    margin-top: -40px; 
+    z-index: 2;
+    background: rgba(15, 23, 42, 0.95); 
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 30px 30px 0 0; 
     padding: 30px;
-    width: 320px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    width: 100%;
+    max-width: 500px; 
+    flex: 1; 
     text-align: center;
-    transition: transform 0.3s ease;
-}
-
-.card:hover {
-    transform: translateY(-5px);
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
 }
 
 .shark-photo {
-    width: 100%;
-    height: 200px;
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    border: 4px solid #10b981;
     object-fit: cover;
-    border-radius: 12px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    margin: -75px auto 15px auto; /* Pulls image UP so it floats halfway out */
+    background-color: #0f2027; /* Fallback color */
+    display: block;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
 }
 
 .tag {
     background-color: rgba(16, 185, 129, 0.2);
     color: #34d399;
     border: 1px solid #10b981;
-    padding: 6px 16px;
+    padding: 4px 12px;
     border-radius: 50px;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 2px;
-    display: inline-block;
-    margin-bottom: 10px;
 }
 
 h1 {
+    color: white;
     margin-top: 10px;
-    font-size: 2.2rem;
+    font-size: 1.8rem;
     font-weight: 700;
-    letter-spacing: -1px;
-    text-shadow: 0 4px 10px rgba(0,0,0,0.3);
 }
 
 p {
-    color: #cbd5e1;
-    text-align: left;
-    font-size: 0.95rem;
+    color: #e2e8f0;
+    text-align: center;
+    font-size: 0.9rem;
     line-height: 1.6;
-    margin-top: 15px;
-    margin-bottom: 25px;
-    font-weight: 300;
-    display: flex;
+    margin: 15px 0 25px 0;
+    padding: 0 10px;
 }
 
 .info {
     display: flex;
     gap: 10px;
-    justify-content: space-between;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
-    padding-top: 25px;
+    padding-top: 20px;
 }
 
 .info-box {
     flex: 1;
-    width: 0;
     text-align: center;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.info-box h3 {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    color: #94a3b8;
-    letter-spacing: 1px;
-    margin-bottom: 5px;
-}
+.info-box:last-child { border-right: none; }
 
-.info-box span {
-    font-weight: 700;
-    font-size: 1.1rem;
-    color: #34d399;
-    text-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
-}
+.info-box h3 { font-size: 0.65rem; text-transform: uppercase; color: #94a3b8; }
+.info-box span { display: block; font-weight: 700; font-size: 1rem; color: #34d399; }
 
 .next-button {
     background-color: #10b981;
     color: #064e3b;
     border: none;
-    padding: 12px 24px;
-    border-radius: 50px;
-    font-weight: 600;
+    padding: 15px;
+    border-radius: 15px;
+    font-weight: 700;
     cursor: pointer;
-    margin-top: 20px;
+    margin-top: 25px;
     width: 100%;
-    transition: all 0.2s ease;
+    transition: all 0.2s;
+    font-size: 1rem;
 }
-
-.next-button:hover {
-    background-color: #34d399;
-    transform: scale(1.05);
-}
-
-.map-container {
-    /* It makes the container the anchor for the dot */
-    position: relative;
-    width: 320px;
-    height: 180px;
-    background-color: rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    margin-bottom: 20px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-}
-
-.word-map {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.6;
-}
-
-.dot{
-    /* I can use Top/Left to move it anywhere */
-    position: absolute;
-    width: 15px;
-    height: 15px;
-    background-color: #ef4444;
-    border-radius: 50%;
-    border: 2px sold white;
-    box-shadow: 0 0 10px #ef4444;
-    /* Animation: Smooth movement when coordinates change */
-    transition: all 0.5s ease-out;
-    /* Center the dot on the coordinate */
-    transform: translate(-50%, -50%);
-}
+.next-button:hover { background-color: #34d399; }
