@@ -1,10 +1,32 @@
 let sharks = [];
 let currentSharkIndex = 0;
 let map;      // Holds the map object
-let marker;   // Holds the red pin
+let mainMarker;   // Holds the red pin
 let sharkPath;
 let startPingMarker;
 let endPingMarker;
+let isAdmin = false;
+let tempClickCoords = null;
+
+function makeSmoothCurve(path, numPoints = 4) {
+    if (!path || path.length < 2) return path;
+    const result = [];
+    for (let i = 0; i < path.length - 1; i++) {
+        const p0 = i > 0 ? path[i - 1] : path[i];
+        const p1 = path[i];
+        const p2 = path[i + 1];
+        const p3 = i < path.length - 2 ? path[i + 2] : path[i + 1];
+        for (let t = 0; t < 1; t += 1 / numPoints) {
+            const t2 = t * t;
+            const t3 = t2 * t;
+            const lat = 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+            const lng = 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+            result.push([lat, lng]);
+        }
+    }
+    result.push(path[path.length - 1]);
+    return result;
+}
 
 async function loadSharkData() {
     try{
@@ -16,11 +38,11 @@ async function loadSharkData() {
     console.log("Data fetched:", sharks);
     initMap();
     }catch(error){
-        console.error("Eroare la conectare:", error);
+        console.error("Connecting error:", error);
         alert("I can't connect with the server! Make sure you have 'node server.js' running!");
     }
 }
-// --- Initialize map ---
+
 function initMap() {
 
     const worldBounds = [
@@ -41,14 +63,20 @@ function initMap() {
         attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    // Add a Pin
-    marker = L.marker([0, 0]).addTo(map);
+    map.on('click', function(e){
+        tempClickCoords = [e.latlng.lat, e.latlng.lng];
 
-    // Load the first shark
+        if (isAdmin) {
+            alert(`Coordinates: ${tempClickCoords}`);
+        }else {
+            document.getElementById('click-coords').innerText = `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+            document.getElementById('report-modal').classList.remove('hidden');
+        }
+    });
+
     updateDisplay();
 }
 
-// --- Update function ---
 function updateDisplay() {
     
     if (sharks.length === 0) return;
@@ -64,18 +92,36 @@ function updateDisplay() {
     document.getElementById("shark-zone").innerText = shark.zone;
     document.getElementById("shark-image").src = shark.img;
 
-    // --- Clean up ---
+    //  Clean up
+    if (mainMarker) map.removeLayer(mainMarker);
     if (sharkPath) map.removeLayer(sharkPath);
     if (startPingMarker) map.removeLayer(startPingMarker);
     if (endPingMarker) map.removeLayer(endPingMarker);
 
-    if (shark.coords){
-        marker.setLatLng(shark.coords);
+    let markerColor = "#ef4444";
+    let markerRadius = 8;
+
+    if ( shark.isUserReport){
+        markerColor = "#a855f7";
+        markerRadius = 10;
     }
 
-    if(shark.history && shark.history.length > 0){
-        sharkPath = L.polyline(shark.history, {
-            color: '#4c00b0',
+    if (shark.coords){
+        mainMarker = L.circleMarker(shark.coords, {
+            radius: markerRadius,
+            fillColor: markerColor,
+            color: "#fff",
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 1
+        }).addTo(map);
+        mainMarker.bindPopup(`<strong>${shark.name}</strong><br>${shark.tag}`);
+    }
+
+    if(shark.history && shark.history.length > 1){
+        let smooth = makeSmoothCurve(shark.history, 4);
+        sharkPath = L.polyline(smooth, {
+            color: '#fbbf24',
             weight: 2,
             opacity: 0.8,
             smoothFactor: 1
@@ -85,37 +131,23 @@ function updateDisplay() {
         let endPoint = shark.history[shark.history.length - 1];
 
         startPingMarker = L.circleMarker(startPoint, {
-            radius: 5,
+            radius: 4,
             fillColor: "#ffffff",
             color: "#000",
             weight: 1,
             fillOpacity: 1
         }).addTo(map);
 
-        startPingMarker.bindPopup(`
-            <div class='ping-popup'>
-                <strong>First Ping</strong><br>
-                ${shark.latestPing}
-            </div>
-        `);
-
         endPingMarker = L.circleMarker(endPoint, {
-            radius: 8,
-            fillColor: "#0ea5e9",
+            radius: 4,
+            fillColor: markerColor,
             color: "#ffffff",
-            weight: 2,
+            weight: 1,
             fillOpacity: 1
         }).addTo(map);
 
-        endPingMarker.bindPopup(`
-            <div class='ping-popup'>
-                <strong> Latest Ping</strong><br>
-                ${shark.latestPing}
-            </div> 
-        `).openPopup();
-
          map.fitBounds(sharkPath.getBounds(), {padding: [50, 50]});   
-    }else {
+    }else if (shark.coords) {
         map.flyTo(shark.coords, 5, {duration: 2.0});
     }
 }
