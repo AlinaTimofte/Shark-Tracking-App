@@ -1,0 +1,13 @@
+services:
+  shark-tracker:
+    build:
+      context: ./shark-docker
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: ./shark-docker/.env
+        required: false
+    environment:
+      SHARK_RUNTIME_DIR: /app/runtime
+    volumes:
+      - ./shark-docker/runtime:/app/runtime

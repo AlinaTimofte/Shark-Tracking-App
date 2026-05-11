@@ -16,10 +16,15 @@
 <body>
     
     <div id="map"></div>
+    <div class="security-bar">
+        <span id="security-status">Checking security status...</span>
+    </div>
+
     <div class="card">
         <img id="shark-image" src="images/placeholder_shark.jpg" alt="Shark" class="shark-photo">
         
         <span id="tag" class="tag">Loading...</span>
+        <span id="precision-label" class="precision">public</span>
         
         <h1 id="shark-name">Shark Name</h1>
         <p id="shark-description">Description loading...</p>
@@ -44,6 +49,46 @@
         </div>
 
         <button class="next-button" onclick="nextShark()">Locate Next Shark</button>
+    </div>
+
+    <aside class="security-panel">
+        <form id="login-form">
+            <div id="login-panel">
+                <h2>Admin Access</h2>
+                <input id="username" type="text" placeholder="Username" autocomplete="username" required>
+                <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+                <button type="submit">Login</button>
+            </div>
+        </form>
+
+        <div id="admin-panel" class="hidden">
+            <div class="panel-header">
+                <h2>Security Console</h2>
+                <button id="logout-button" type="button">Logout</button>
+            </div>
+            <div class="admin-action">
+                <span>Move current shark</span>
+                <small id="move-coords">Click the map</small>
+                <button id="move-button" type="button" disabled>Save Exact Location</button>
+            </div>
+            <div class="admin-action">
+                <span>RSA-signed reports</span>
+                <ul id="pending-list"></ul>
+            </div>
+        </div>
+    </aside>
+
+    <div id="report-modal" class="modal hidden">
+        <form id="report-form" class="modal-content">
+            <h2>Report Shark Sighting</h2>
+            <small>Selected coordinates: <span id="click-coords">--</span></small>
+            <input id="reporter" type="text" placeholder="Your name">
+            <textarea id="report-description" rows="4" placeholder="Describe what you saw" required></textarea>
+            <div class="modal-actions">
+                <button id="close-report" type="button">Cancel</button>
+                <button type="submit">Sign and Submit</button>
+            </div>
+        </form>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>

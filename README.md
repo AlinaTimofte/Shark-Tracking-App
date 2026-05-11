@@ -3,7 +3,29 @@
 This is the guide for running the Shark Tracking Application (Backend + statically served Frontend).
 
 ## Components
-The application consists of a Node.js (Express) server that serves both the API endpoints and the static frontend files from the `public` folder.
+The application consists of a Node.js server that serves both the API endpoints and the static frontend files from the `public` folder.
+
+The current version also includes a local-file security layer for the Digital Security project:
+- hashed admin login
+- signed admin tokens
+- AES-encrypted private shark coordinates
+- RSA-signed community reports
+- audit logging
+
+More details are in `shark-docker/SECURITY_FEATURES.md`.
+
+## Runtime Security Files
+
+Generated security files are stored in `shark-docker/runtime/` by default and are ignored by Git:
+- `.security/secrets.json`
+- `keys/private.pem`
+- `keys/public.pem`
+- `secret_sharks.enc`
+- `users.json`
+- `sightings.json`
+- `security_audit.log`
+
+This keeps private keys, encryption secrets, password hashes, encrypted private data, and logs out of GitHub.
 
 ## How to run the application locally (Without Docker)
 
@@ -37,6 +59,31 @@ The application consists of a Node.js (Express) server that serves both the API 
 
 If you prefer using Docker to isolate the application:
 
+1. From the project root, run Docker Compose:
+   ```bash
+   docker compose up --build
+   ```
+
+2. Open your browser and navigate to **[http://localhost:3000](http://localhost:3000)**.
+
+Docker Compose mounts `./shark-docker/runtime` into the container at `/app/runtime`, so secrets and generated files stay outside the image and outside Git.
+
+Optional: create a real `.env` from the example if you want stable secrets across machines:
+
+```bash
+cp shark-docker/.env.example shark-docker/.env
+```
+
+Then replace the placeholder values with 32-byte base64 strings:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### Manual Docker
+
+You can also build and run the image manually:
+
 1. Navigate to the `shark-docker` folder:
    ```bash
    cd shark-docker
@@ -47,14 +94,7 @@ If you prefer using Docker to isolate the application:
    docker build -t shark-tracker-app .
    ```
 
-3. Run the Docker container:
+3. Run the Docker container with a runtime volume:
    ```bash
-   docker run -p 3000:3000 -d shark-tracker-app
+   docker run -p 3000:3000 -v "$(pwd)/runtime:/app/runtime" shark-tracker-app
    ```
-
-4. Open your browser and navigate to **[http://localhost:3000](http://localhost:3000)**.
-
----
-
-**Note regarding application modes:**
-The server reads the `secret_sharks.json` file if it exists (in which case it runs in **PRIVATE (Secret File Loaded)** mode). If the file is not present locally, it will default to **PUBLIC (Demo Mode)**, using the coordinates suited for this level of access.

@@ -1,3 +1,12 @@
 node_modules
-secret_sharks.json
 .git
+.DS_Store
+.env
+
+# Do not bake runtime secrets or sensitive generated files into the image.
+runtime
+.security
+keys
+secret_sharks.enc
+security_audit.log
+users.json

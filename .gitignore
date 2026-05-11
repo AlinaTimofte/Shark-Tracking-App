@@ -3,3 +3,11 @@ node_modules/
 .env
 .DS_Store
 Thumbs.db
+
+# Runtime security material: generated locally or mounted by Docker.
+shark-docker/runtime/
+shark-docker/.security/
+shark-docker/keys/
+shark-docker/secret_sharks.enc
+shark-docker/security_audit.log
+shark-docker/users.json
