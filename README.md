@@ -11,6 +11,7 @@ The current version also includes a local-file security layer for the Digital Se
 - AES-encrypted private shark coordinates
 - RSA-signed community reports
 - audit logging
+- PostgreSQL persistence with JSON/runtime fallback
 
 More details are in `shark-docker/SECURITY_FEATURES.md`.
 
@@ -26,6 +27,8 @@ Generated security files are stored in `shark-docker/runtime/` by default and ar
 - `security_audit.log`
 
 This keeps private keys, encryption secrets, password hashes, encrypted private data, and logs out of GitHub.
+
+When PostgreSQL is available, the app creates the required tables automatically from `shark-docker/scripts/db/schema.sql`. On first run it seeds the database from the existing runtime JSON/encrypted files only if the tables are empty. The JSON/runtime files are still kept as a fallback copy.
 
 ## How to run the application locally (Without Docker)
 
@@ -51,6 +54,12 @@ This keeps private keys, encryption secrets, password hashes, encrypted private 
    ```
    *(Alternatively, you can use `node server.js`)*
 
+   To use a local PostgreSQL database, provide `DATABASE_URL`:
+   ```bash
+   DATABASE_URL=postgres://user:password@localhost:5432/shark_tracker npm start
+   ```
+   If no database configuration is provided, or if PostgreSQL is not reachable, the app continues with runtime JSON fallback.
+
 4. Access the application:
    Open your browser and navigate to:
    **[http://localhost:3000](http://localhost:3000)**
@@ -67,6 +76,7 @@ If you prefer using Docker to isolate the application:
 2. Open your browser and navigate to **[http://localhost:3000](http://localhost:3000)**.
 
 Docker Compose mounts `./shark-docker/runtime` into the container at `/app/runtime`, so secrets and generated files stay outside the image and outside Git.
+It also starts a PostgreSQL container and provides `DATABASE_URL` to the app. The app creates tables automatically and seeds them from the runtime files only when the tables are empty.
 
 Optional: create a real `.env` from the example if you want stable secrets across machines:
 

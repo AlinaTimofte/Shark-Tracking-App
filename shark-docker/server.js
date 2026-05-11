@@ -3,6 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+let Pool = null;
+try {
+    ({ Pool } = require('pg'));
+} catch (err) {
+    Pool = null;
+}
+
 const port = 3000;
 const DATA_DIR = __dirname;
 const PUBLIC_DIR = path.join(DATA_DIR, 'public');
@@ -21,9 +28,24 @@ const SECRETS_FILE = path.join(SECURITY_DIR, 'secrets.json');
 const AUDIT_FILE = path.join(RUNTIME_DIR, 'security_audit.log');
 const PRIVATE_KEY_FILE = path.join(KEYS_DIR, 'private.pem');
 const PUBLIC_KEY_FILE = path.join(KEYS_DIR, 'public.pem');
+const DB_SCHEMA_FILE = path.join(DATA_DIR, 'scripts', 'db', 'schema.sql');
 
 const DEFAULT_ADMIN_PASSWORD = 'shark123';
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+const database = {
+    pool: null,
+    available: false
+};
+
+function hasDatabaseConfig() {
+    return Boolean(
+        process.env.DATABASE_URL
+        || process.env.PGHOST
+        || process.env.PGDATABASE
+        || process.env.PGUSER
+        || process.env.PGPASSWORD
+    );
+}
 
 function ensureDir(dir) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -44,6 +66,7 @@ function writeJSON(file, data) {
 }
 
 function audit(event, details = {}, req = null) {
+    ensureDir(RUNTIME_DIR);
     const entry = {
         time: new Date().toISOString(),
         event,
@@ -52,6 +75,45 @@ function audit(event, details = {}, req = null) {
         ...details
     };
     fs.appendFileSync(AUDIT_FILE, `${JSON.stringify(entry)}\n`);
+
+    if (database.available) {
+        database.pool.query(
+            'INSERT INTO audit_events (event, details, ip, username) VALUES ($1, $2, $3, $4)',
+            [event, details, req?.socket?.remoteAddress || null, req?.user?.username || null]
+        ).catch((err) => {
+            fs.appendFileSync(AUDIT_FILE, `${JSON.stringify({
+                time: new Date().toISOString(),
+                event: 'audit_db_write_failed',
+                error: err.message
+            })}\n`);
+        });
+    }
+}
+
+function dbConfig() {
+    if (process.env.DATABASE_URL) {
+        return { connectionString: process.env.DATABASE_URL };
+    }
+
+    return {
+        host: process.env.PGHOST || 'localhost',
+        port: Number(process.env.PGPORT || 5432),
+        database: process.env.PGDATABASE || 'shark_tracker',
+        user: process.env.PGUSER || process.env.USER || 'postgres',
+        password: process.env.PGPASSWORD || undefined
+    };
+}
+
+function slug(value) {
+    return String(value || 'item')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 48) || 'item';
+}
+
+function sharkSourceKey(shark, index) {
+    return `shark-${index + 1}-${slug(shark.name || shark.tag)}`;
 }
 
 function canonicalJSON(value) {
@@ -237,6 +299,163 @@ function writeSecretSharks(sharks) {
     writeJSON(SECRET_SHARKS_FILE, encryptJSON(sharks));
 }
 
+async function initDatabase() {
+    if (!Pool || process.env.DISABLE_POSTGRES === 'true' || !hasDatabaseConfig()) {
+        audit('database_disabled_or_driver_missing', {
+            hasPgDriver: Boolean(Pool),
+            hasDatabaseConfig: hasDatabaseConfig()
+        });
+        return;
+    }
+
+    const pool = new Pool(dbConfig());
+    try {
+        let lastError = null;
+        for (let attempt = 1; attempt <= 10; attempt++) {
+            try {
+                await pool.query('SELECT 1');
+                lastError = null;
+                break;
+            } catch (err) {
+                lastError = err;
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+        }
+        if (lastError) throw lastError;
+
+        const schema = fs.readFileSync(DB_SCHEMA_FILE, 'utf8');
+        await pool.query(schema);
+        database.pool = pool;
+        database.available = true;
+        await seedDatabaseFromRuntimeFiles();
+        audit('database_connected');
+    } catch (err) {
+        await pool.end().catch(() => {});
+        database.pool = null;
+        database.available = false;
+        audit('database_unavailable_using_json_fallback', { error: err.message });
+    }
+}
+
+async function tableCount(tableName) {
+    const result = await database.pool.query(`SELECT COUNT(*)::int AS count FROM ${tableName}`);
+    return result.rows[0].count;
+}
+
+async function seedDatabaseFromRuntimeFiles() {
+    if (!database.available) return;
+
+    if (await tableCount('app_users') === 0) {
+        const users = readJSON(USERS_FILE, []);
+        for (const user of users) {
+            await database.pool.query(
+                'INSERT INTO app_users (username, role, password) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING',
+                [user.username, user.role, user.password]
+            );
+        }
+        audit('database_seeded_users', { count: users.length });
+    }
+
+    if (await tableCount('sharks') === 0) {
+        const sharks = readSecretSharks();
+        for (const [index, shark] of sharks.entries()) {
+            await database.pool.query(
+                'INSERT INTO sharks (source_key, encrypted_payload) VALUES ($1, $2) ON CONFLICT (source_key) DO NOTHING',
+                [sharkSourceKey(shark, index), encryptJSON(shark)]
+            );
+        }
+        audit('database_seeded_sharks', { count: sharks.length });
+    }
+
+    if (await tableCount('sightings') === 0) {
+        const sightings = readJSON(SIGHTINGS_FILE, []);
+        for (const item of sightings) {
+            await database.pool.query(
+                `INSERT INTO sightings (report_id, report, signature, signature_algorithm)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (report_id) DO NOTHING`,
+                [item.report.id, item.report, item.signature, item.signatureAlgorithm || 'RSA-SHA256']
+            );
+        }
+        audit('database_seeded_sightings', { count: sightings.length });
+    }
+}
+
+async function readUsers() {
+    if (!database.available) return readJSON(USERS_FILE, []);
+    const result = await database.pool.query('SELECT username, role, password FROM app_users ORDER BY username');
+    return result.rows.map((row) => ({
+        username: row.username,
+        role: row.role,
+        password: row.password
+    }));
+}
+
+async function readSharks() {
+    if (!database.available) return readSecretSharks();
+    const result = await database.pool.query('SELECT encrypted_payload FROM sharks ORDER BY id');
+    return result.rows.map((row) => decryptJSON(row.encrypted_payload));
+}
+
+async function writeSharks(sharks) {
+    writeSecretSharks(sharks);
+
+    if (!database.available) return;
+    const client = await database.pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM sharks');
+        for (const [index, shark] of sharks.entries()) {
+            await client.query(
+                'INSERT INTO sharks (source_key, encrypted_payload) VALUES ($1, $2)',
+                [sharkSourceKey(shark, index), encryptJSON(shark)]
+            );
+        }
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+async function readSightings() {
+    if (!database.available) return readJSON(SIGHTINGS_FILE, []);
+    const result = await database.pool.query(
+        'SELECT report, signature, signature_algorithm FROM sightings ORDER BY created_at, report_id'
+    );
+    return result.rows.map((row) => ({
+        report: row.report,
+        signature: row.signature,
+        signatureAlgorithm: row.signature_algorithm
+    }));
+}
+
+async function writeSightings(sightings) {
+    writeJSON(SIGHTINGS_FILE, sightings);
+
+    if (!database.available) return;
+    const client = await database.pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM sightings');
+        for (const item of sightings) {
+            await client.query(
+                `INSERT INTO sightings (report_id, report, signature, signature_algorithm)
+                 VALUES ($1, $2, $3, $4)`,
+                [item.report.id, item.report, item.signature, item.signatureAlgorithm || 'RSA-SHA256']
+            );
+        }
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
 function signReport(report) {
     return crypto
         .sign('sha256', Buffer.from(canonicalJSON(report)), fs.readFileSync(PRIVATE_KEY_FILE, 'utf8'))
@@ -322,13 +541,14 @@ async function handleApi(req, res, pathname) {
                 encryption: 'AES-256-GCM',
                 reportIntegrity: 'RSA-SHA256 signatures',
                 passwordStorage: 'PBKDF2-SHA256 salted hashes',
-                auditLog: 'security_audit.log'
+                auditLog: 'security_audit.log',
+                database: database.available ? 'postgres' : 'json-fallback'
             });
         }
 
         if (req.method === 'GET' && pathname === '/api/sharks/full-data') {
             authenticate(req);
-            const sharks = readSecretSharks();
+            const sharks = await readSharks();
             if (req.user?.role === 'admin') {
                 audit('private_sharks_viewed', { count: sharks.length }, req);
                 return sendJSON(res, 200, sharks.map((shark) => ({ ...shark, precision: 'admin-exact' })));
@@ -338,14 +558,14 @@ async function handleApi(req, res, pathname) {
 
         if (req.method === 'GET' && pathname === '/api/sightings/pending') {
             if (!requireAdmin(req, res)) return;
-            const sightings = readJSON(SIGHTINGS_FILE, []);
+            const sightings = await readSightings();
             audit('pending_sightings_viewed', { count: sightings.length }, req);
             return sendJSON(res, 200, sightings.map(storedReportView));
         }
 
         if (req.method === 'POST' && pathname === '/api/login') {
             const { username, password } = await readBody(req);
-            const users = readJSON(USERS_FILE, []);
+            const users = await readUsers();
             const user = users.find((candidate) => candidate.username === username);
 
             if (!user || !verifyPassword(password || '', user.password)) {
@@ -375,7 +595,7 @@ async function handleApi(req, res, pathname) {
                 return sendJSON(res, 400, { success: false, message: 'Invalid shark index or coordinates' });
             }
 
-            const sharks = readSecretSharks();
+            const sharks = await readSharks();
             if (!sharks[sharkIndex]) {
                 return sendJSON(res, 404, { success: false, message: 'Shark not found' });
             }
@@ -390,7 +610,7 @@ async function handleApi(req, res, pathname) {
                 year: 'numeric'
             });
 
-            writeSecretSharks(sharks);
+            await writeSharks(sharks);
             audit('shark_moved', { sharkIndex, sharkName: sharks[sharkIndex].name }, req);
             return sendJSON(res, 200, { success: true, message: 'The shark has been updated' });
         }
@@ -413,13 +633,13 @@ async function handleApi(req, res, pathname) {
                 coords: coords.map(Number)
             };
 
-            const sightings = readJSON(SIGHTINGS_FILE, []);
+            const sightings = await readSightings();
             sightings.push({
                 report,
                 signature: signReport(report),
                 signatureAlgorithm: 'RSA-SHA256'
             });
-            writeJSON(SIGHTINGS_FILE, sightings);
+            await writeSightings(sightings);
             audit('sighting_submitted', { reportId: report.id });
 
             return sendJSON(res, 200, { success: true, message: 'The report has been submitted and digitally signed' });
@@ -428,8 +648,8 @@ async function handleApi(req, res, pathname) {
         if (req.method === 'POST' && pathname === '/api/admin/approve-sighting') {
             if (!requireAdmin(req, res)) return;
             const { id } = await readBody(req);
-            const sightings = readJSON(SIGHTINGS_FILE, []);
-            const sharks = readSecretSharks();
+            const sightings = await readSightings();
+            const sharks = await readSharks();
             const index = sightings.findIndex((item) => item.report.id === id);
 
             if (index === -1) {
@@ -460,8 +680,8 @@ async function handleApi(req, res, pathname) {
             });
 
             sightings.splice(index, 1);
-            writeSecretSharks(sharks);
-            writeJSON(SIGHTINGS_FILE, sightings);
+            await writeSharks(sharks);
+            await writeSightings(sightings);
             audit('sighting_approved', { reportId: id }, req);
             return sendJSON(res, 200, { success: true });
         }
@@ -472,10 +692,6 @@ async function handleApi(req, res, pathname) {
         return sendJSON(res, 500, { success: false, message: err.message });
     }
 }
-
-ensureUsers();
-readSecretSharks();
-if (!fs.existsSync(SIGHTINGS_FILE)) writeJSON(SIGHTINGS_FILE, []);
 
 const server = http.createServer((req, res) => {
     const { pathname } = new URL(req.url, `http://${req.headers.host}`);
@@ -496,7 +712,20 @@ server.on('error', (err) => {
     process.exit(1);
 });
 
-server.listen(port, () => {
-    console.log(`Server active on http://localhost:${port}`);
-    console.log('Security enabled: PBKDF2 login, signed tokens, AES-256-GCM shark storage, RSA report signatures');
+async function start() {
+    ensureUsers();
+    readSecretSharks();
+    if (!fs.existsSync(SIGHTINGS_FILE)) writeJSON(SIGHTINGS_FILE, []);
+    await initDatabase();
+
+    server.listen(port, () => {
+        console.log(`Server active on http://localhost:${port}`);
+        console.log('Security enabled: PBKDF2 login, signed tokens, AES-256-GCM shark storage, RSA report signatures');
+        console.log(`Storage mode: ${database.available ? 'PostgreSQL' : 'runtime JSON fallback'}`);
+    });
+}
+
+start().catch((err) => {
+    console.error(`Startup failed: ${err.message}`);
+    process.exit(1);
 });

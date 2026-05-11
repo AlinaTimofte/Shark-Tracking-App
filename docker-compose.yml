@@ -1,7 +1,26 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shark_tracker
+      POSTGRES_USER: shark_app
+      POSTGRES_PASSWORD: shark_app_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - shark-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shark_app -d shark_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   shark-tracker:
     build:
       context: ./shark-docker
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "3000:3000"
     env_file:
@@ -9,5 +28,9 @@ services:
         required: false
     environment:
       SHARK_RUNTIME_DIR: /app/runtime
+      DATABASE_URL: postgres://shark_app:shark_app_password@postgres:5432/shark_tracker
     volumes:
       - ./shark-docker/runtime:/app/runtime
+
+volumes:
+  shark-postgres-data:
