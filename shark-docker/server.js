@@ -32,6 +32,16 @@ const DB_SCHEMA_FILE = path.join(DATA_DIR, 'scripts', 'db', 'schema.sql');
 
 const DEFAULT_ADMIN_PASSWORD = 'shark123';
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+const SAFE_COUNT_TABLES = new Set(['app_users', 'sharks', 'sightings', 'audit_events']);
+const SQL_INJECTION_PATTERNS = [
+    /(--|#|\/\*|\*\/)/,
+    /;\s*(drop|delete|insert|update|alter|create|truncate)\b/i,
+    /\bunion\s+select\b/i,
+    /\bselect\b.+\bfrom\b/i,
+    /\bor\b\s+(['"]?\w+['"]?\s*=\s*['"]?\w+|\d+\s*=\s*\d+)/i,
+    /\band\b\s+(['"]?\w+['"]?\s*=\s*['"]?\w+|\d+\s*=\s*\d+)/i,
+    /\b(drop|alter|truncate)\s+table\b/i
+];
 const database = {
     pool: null,
     available: false
@@ -114,6 +124,60 @@ function slug(value) {
 
 function sharkSourceKey(shark, index) {
     return `shark-${index + 1}-${slug(shark.name || shark.tag)}`;
+}
+
+function normalizeText(value, maxLength) {
+    return String(value || '')
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxLength);
+}
+
+function findSqlInjectionAttempt(value, location = 'body') {
+    if (typeof value === 'string') {
+        const match = SQL_INJECTION_PATTERNS.find((pattern) => pattern.test(value));
+        return match ? { location, value: value.slice(0, 120), pattern: match.toString() } : null;
+    }
+
+    if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index++) {
+            const result = findSqlInjectionAttempt(value[index], `${location}[${index}]`);
+            if (result) return result;
+        }
+    }
+
+    if (value && typeof value === 'object') {
+        for (const [key, nestedValue] of Object.entries(value)) {
+            const result = findSqlInjectionAttempt(nestedValue, `${location}.${key}`);
+            if (result) return result;
+        }
+    }
+
+    return null;
+}
+
+function rejectSqlInjectionAttempt(req, res, payload) {
+    const attempt = findSqlInjectionAttempt(payload);
+    if (!attempt) return false;
+
+    audit('sql_injection_attempt_blocked', attempt, req);
+    sendJSON(res, 400, {
+        success: false,
+        message: 'Invalid input detected'
+    });
+    return true;
+}
+
+function isValidUsername(username) {
+    return /^[a-zA-Z0-9_.-]{1,64}$/.test(username);
+}
+
+function assertSafeCountTable(tableName) {
+    if (!SAFE_COUNT_TABLES.has(tableName)) {
+        throw new Error(`Unsafe table name rejected: ${tableName}`);
+    }
+    return tableName;
 }
 
 function canonicalJSON(value) {
@@ -338,7 +402,8 @@ async function initDatabase() {
 }
 
 async function tableCount(tableName) {
-    const result = await database.pool.query(`SELECT COUNT(*)::int AS count FROM ${tableName}`);
+    const safeTableName = assertSafeCountTable(tableName);
+    const result = await database.pool.query(`SELECT COUNT(*)::int AS count FROM ${safeTableName}`);
     return result.rows[0].count;
 }
 
@@ -541,6 +606,7 @@ async function handleApi(req, res, pathname) {
                 encryption: 'AES-256-GCM',
                 reportIntegrity: 'RSA-SHA256 signatures',
                 passwordStorage: 'PBKDF2-SHA256 salted hashes',
+                sqlInjectionProtection: 'parameterized queries and input validation',
                 auditLog: 'security_audit.log',
                 database: database.available ? 'postgres' : 'json-fallback'
             });
@@ -564,7 +630,16 @@ async function handleApi(req, res, pathname) {
         }
 
         if (req.method === 'POST' && pathname === '/api/login') {
-            const { username, password } = await readBody(req);
+            const body = await readBody(req);
+            if (rejectSqlInjectionAttempt(req, res, body)) return;
+
+            const username = normalizeText(body.username, 64);
+            const password = String(body.password || '');
+            if (!isValidUsername(username)) {
+                audit('invalid_username_rejected', { username }, req);
+                return sendJSON(res, 400, { success: false, message: 'Invalid username format' });
+            }
+
             const users = await readUsers();
             const user = users.find((candidate) => candidate.username === username);
 
@@ -586,7 +661,10 @@ async function handleApi(req, res, pathname) {
 
         if (req.method === 'POST' && pathname === '/api/admin/move-shark') {
             if (!requireAdmin(req, res)) return;
-            const { sharkIndex, newCoords } = await readBody(req);
+            const body = await readBody(req);
+            if (rejectSqlInjectionAttempt(req, res, body)) return;
+
+            const { sharkIndex, newCoords } = body;
             const coordsAreValid = Array.isArray(newCoords)
                 && newCoords.length === 2
                 && newCoords.every((value) => Number.isFinite(Number(value)));
@@ -616,10 +694,16 @@ async function handleApi(req, res, pathname) {
         }
 
         if (req.method === 'POST' && pathname === '/api/report') {
-            const { description, coords, reporter } = await readBody(req);
+            const body = await readBody(req);
+            if (rejectSqlInjectionAttempt(req, res, body)) return;
+
+            const { coords } = body;
             const coordsAreValid = Array.isArray(coords)
                 && coords.length === 2
                 && coords.every((value) => Number.isFinite(Number(value)));
+
+            const reporter = normalizeText(body.reporter || 'Anonymous', 80);
+            const description = normalizeText(body.description, 500);
 
             if (!description || !coordsAreValid) {
                 return sendJSON(res, 400, { success: false, message: 'Description and coordinates are required' });
@@ -628,8 +712,8 @@ async function handleApi(req, res, pathname) {
             const report = {
                 id: Date.now(),
                 date: new Date().toLocaleDateString(),
-                reporter: String(reporter || 'Anonymous').slice(0, 80),
-                description: String(description).slice(0, 500),
+                reporter,
+                description,
                 coords: coords.map(Number)
             };
 
@@ -647,7 +731,14 @@ async function handleApi(req, res, pathname) {
 
         if (req.method === 'POST' && pathname === '/api/admin/approve-sighting') {
             if (!requireAdmin(req, res)) return;
-            const { id } = await readBody(req);
+            const body = await readBody(req);
+            if (rejectSqlInjectionAttempt(req, res, body)) return;
+
+            const { id } = body;
+            if (!Number.isInteger(id)) {
+                return sendJSON(res, 400, { success: false, message: 'Invalid report id' });
+            }
+
             const sightings = await readSightings();
             const sharks = await readSharks();
             const index = sightings.findIndex((item) => item.report.id === id);
